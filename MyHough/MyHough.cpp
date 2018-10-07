@@ -1,56 +1,117 @@
 #include "MyHough.h"
+#include <cstring>
 /*
 class MyHough{
 public:
+	Mat gprocess;
+	MyHough(const Mat &src, const int piece);
+	void get_direction(float &angle, float &angle2);
+private:
+	Mat gorigin;
 	Mat xg;
 	Mat yg;
 	Mat gsize;
-	Mat gorigin;
-	Mat gprocess;
+	int piece;
 	vector<vector<int>> vx;
 	vector<vector<int>> vy;
-	MyHough(const Mat &src, const int piece);
-	void process_gradient(const Mat &src, Mat &dst);
-	void get_direction(const Mat &gg, const Mat &gsize, 
-	                   float &angle, float &angle2, const int &piece);
-private:
-	void init_mat(const Mat &src, Mat &dst);
-	void xy_gradient(const Mat &src, Mat &x_dst, Mat &y_dst);
-	void gradient(const Mat &x_src, const Mat &y_src,
-			      Mat &gorigin_dst, Mat &gsize_dst);
-};*/
+	void xy_gradient(const Mat &src);
+	void gradient();
+};
+*/
+MyHough::MyHough(const Mat &src, const int piece_num):piece(piece_num){
+	xg = Mat(src.rows, src.cols, CV_32F);	
+	yg = Mat(src.rows, src.cols, CV_32F);	
+	gsize = Mat(src.rows, src.cols, CV_32F);	
+	gprocess = Mat(src.rows, src.cols, CV_32F);	
+	gorigin = Mat(src.rows, src.cols, CV_32F);	
+	//cout << xg << endl;
+	//cout << yg << endl;
+	//cout << gsize << endl;
+	//cout << gprocess << endl;
+	//cout << gorigin << endl;
+	vx.resize(piece);
+	vy.resize(piece);
+	//cout <<  << endl;
+	MyHough::xy_gradient(src);
+	MyHough::gradient();
+}
 
-void MyHough::get_direction(const Mat &gg, const Mat &gsize, 
-	                   float &angle, float &angle2, const int &piece){
-	int ppiece = 180 / piece;
-	for(int i = 0; i < gg.rows; ++i){
-	 	for(int j = 0; j < gg.cols; ++j){
-			float temp = gg.at<float>(i, j);
-			float temp2 = gsize.at<float>(i, j);
-			//cout << "temp/piece: " << temp << " " << piece;	
-			if(temp != 0){
-				if(temp == 180){
-					vx[piece - 1].push_back(i);
-					vy[piece - 1].push_back(j);
-				} else { 
-					int ttt = (int)(temp / ppiece);	
-					//cout << "  ttt: " << ttt << endl;
-					vx[ttt].push_back(i);
-					vy[ttt].push_back(j);
-				}
+void MyHough::xy_gradient(const Mat &src){
+	int m = src.rows;
+	int n = src.cols;
+	for(int i = 0; i < m; ++i){
+		for(int j = 0; j < n; ++j){
+			// the boundary's gradient is 0
+			if(j == n-1){
+				xg.at<float>(i, j) = 0;
+			} else {
+				xg.at<float>(i, j) = (src.at<float>(i,j+1) 
+					- src.at<float>(i, j))*(src.at<float>(i,j));
+			}		
+			if(i == m-1){
+				yg.at<float>(i, j) = 0;
+			} else {
+				yg.at<float>(i, j) = (src.at<float>(i+1, j) 
+					 - src.at<float>(i, j))*(src.at<float>(i,j));
 			}
 		}
 	}
-	cout << "42" << endl;
-	float dir[piece];
-	float ssize[piece];
-	int num[piece];
+}
+
+void MyHough::gradient(){
+	for(int i = 0; i < xg.rows; ++i){
+	 	for(int j = 0; j < xg.cols; ++j){
+			float a = xg.at<float>(i, j);
+			float b = yg.at<float>(i, j);
+			float temp = atan2(b, a) * 180 / CV_PI;
+			gorigin.at<float>(i, j) = temp;
+			if(temp >= 0 && temp != 180){
+				gprocess.at<float>(i, j) = temp;
+			} else if(temp == 180){
+				gprocess.at<float>(i, j) = 0;
+			} else {
+				// 将角度为负的 + 180
+				gprocess.at<float>(i, j) = 180 + temp;
+			}
+			gsize.at<float>(i, j) = pow((pow(a, 2) + pow(b, 2)), 0.5);
+			//if(gsize.at<float>(i, j) < 0){
+			//	cout << "i,j" << i << " : " << j << endl;
+			//}
+		}
+	}
+}
+
+void MyHough::get_direction(float &angle, float &angle2){
+	float ppiece = (180 / (float)piece);
+	for(int i = 0; i < gsize.rows; ++i){
+	 	for(int j = 0; j < gsize.cols; ++j){
+			float gg = gprocess.at<float>(i, j);
+			float ggsize = gsize.at<float>(i, j);
+			
+			//cout << "temp/piece: " << temp << " " << piece;	
+			
+			if(ggsize != 0){// 梯度值不为0的都统计
+				int index = (int)(gg / ppiece);	
+				
+				//cout << "  index: " << index << endl;
+				
+				vx[index].push_back(i);
+				vy[index].push_back(j);
+			}
+		}
+	}
+	float dir[piece];// 每一个划分区间的角度大小之和
+	memset(dir, 0, sizeof(dir));
+	float ssize[piece];// 每一个划分区间的gradient大小之和
+	memset(ssize, 0, sizeof(ssize));
+	int num[piece];// 每一个划分区间有多少个点落在上面
+	memset(dir, 0, sizeof(num));
 	for(int i = 0; i < piece; ++i){
+		num[i] = vx[i].size();
 		for(int j = 0; j < vx[i].size(); ++j){
 			int tx = vx[i][j]; 
 			int ty = vy[i][j]; 
-			num[i]++;
-			dir[i] += gg.at<float>(tx, ty);
+			dir[i] += gprocess.at<float>(tx, ty);
 			ssize[i] += gsize.at<float>(tx, ty);
 		}
 	}	
@@ -65,109 +126,50 @@ void MyHough::get_direction(const Mat &gg, const Mat &gsize,
 	}
 	cout << endl;
 	
-	int wmmax = ssize[0], wmax_num = 0;	
+	// 根据ssize的大小，找到第一个大的区间
+	int wmax = 0, wmax_num = 0;	
 	for(int i = 0; i < piece; ++i){
-		if(wmmax < ssize[i]){
+		if(wmax < ssize[i]){
 			wmax_num = i;
-			wmmax = ssize[i];
+			wmax = ssize[i];
 		}
 	}
-	int wsmax = ssize[1], wsec_num = 1;	
+	// 根据ssize的大小，找到第2个大的区间
+	int wsec = 0, wsec_num = 0;	
 	for(int i = 0; i < piece; ++i){
-		if(ssize[i] > wsmax && i != wmax_num){
+		if(ssize[i] > wsec && i != wmax_num){
 			wsec_num = i;
-			wsmax = ssize[i];
+			wsec = ssize[i];
 		}
 	}
 	
-	float tt = 0, tt2 = 0;
-	float deno = 0, deno2 = 0;
-	for(int j = 0; j < vx[wmax_num].size(); ++j){
-		float temp = gg.at<float>(wmax_num, j);
-		float temp2 = gsize.at<float>(wmax_num, j);
-		deno += temp2;
-		tt += (temp2 * temp);
-	}
-	for(int j = 0; j < vx[wsec_num].size(); ++j){
-		float temp = gg.at<float>(wsec_num, j);
-		float temp2 = gsize.at<float>(wsec_num, j);
-		deno2 += temp2;
-		tt2 += (temp2 * temp);
-	}
-	
-	tt /= deno;
-	tt2 /= deno2;
-
-	cout << "tt: " << tt << endl;
-	cout << "tt2: " << tt2 << endl;
 	cout << "w max num: " << wmax_num << endl;
 	cout << "w sec num: " << wsec_num << endl;
+	
+	float tt = 0, tt2 = 0;
+	// 遍历已确定范围了的点
+	// 根据该点的梯度的值作为权重确定该范围内角度的加权平均值
+	for(int j = 0; j < vx[wmax_num].size(); ++j){
+		// gg: 每个点的梯度角度
+		float gg = gprocess.at<float>(vx[wmax_num][j], vy[wmax_num][j]);
+		float weight = gsize.at<float>(vx[wmax_num][j], vy[wmax_num][j]);
+		tt += (weight * gg);
+	}
+	for(int j = 0; j < vx[wsec_num].size(); ++j){
+		float gg = gprocess.at<float>(vx[wsec_num][j], vy[wsec_num][j]);
+		float weight = gsize.at<float>(vx[wsec_num][j], vy[wsec_num][j]);
+		tt2 += (weight * gg);
+	}
+	//ssize[]: 每一个划分区间的gradient大小之和
+	cout << "ones: " << ssize[wmax_num] << endl;
+	cout << "twos: " << ssize[wsec_num] << endl;	
+	
+	tt = tt / ssize[wmax_num];
+	tt2 = tt2 / ssize[wsec_num];
+	
+	cout << "tt: " << tt << endl;
+	cout << "tt2: " << tt2 << endl;
 	cout << "find direction OK" << endl;	
 }
 
-MyHough::MyHough(const Mat &src, const int piece_num):piece(piece_num){
-	vx.resize(piece);
-	vy.resize(piece);
-	MyHough::init_mat(src, xg);
-	MyHough::init_mat(src, yg);
-	MyHough::init_mat(src, gsize);
-	MyHough::init_mat(src, gorigin);
-	MyHough::init_mat(src, gprocess);
-	MyHough::xy_gradient(src, xg, yg);
-	MyHough::gradient(xg, yg, gorigin, gsize);
-}
 
-void MyHough::process_gradient(const Mat &src, Mat &dst){
-	for(int i = 0; i < src.rows; ++i){
-	 	for(int j = 0; j < src.cols; ++j){
-			float temp = src.at<float>(i, j);
-			if(temp < 0){
-				dst.at<float>(i, j) = 180 + temp;
-			} else {
-				dst.at<float>(i, j) = temp;
-			}
-		}
-	} 
-}
-
-void MyHough::gradient(const Mat &x_src, const Mat &y_src,
-		               Mat &gorigin_dst, Mat &gsize_dst){
-	for(int i = 0; i < x_src.rows; ++i){
-	 	for(int j = 0; j < x_src.cols; ++j){
-			float a = x_src.at<float>(i, j);
-			float b = y_src.at<float>(i, j);
-			gorigin_dst.at<float>(i, j) = atan2(b, a) * 180 / CV_PI;
-			gsize_dst.at<float>(i, j) = pow((pow(a, 2) + pow(b, 2)), 0.5);
-		}
-	}
-}
-
-void MyHough::xy_gradient(const Mat &src, Mat &dst, Mat &dst2){
-	int m = src.rows;
-	int n = src.cols;
-	for(int i = 0; i < m; ++i){
-		for(int j = 0; j < n; ++j){
-			if(j == n-1){
-				dst.at<float>(i, j) = 0;
-			} else {
-				dst.at<float>(i, j) = (src.at<float>(i,j) 
-					- src.at<float>(i, j+1))*(src.at<float>(i,j));
-			}		
-			if(i == m-1){
-				dst2.at<float>(i, j) = 0;
-			} else {
-				dst2.at<float>(i, j) = (src.at<float>(i, j) 
-					 - src.at<float>(i+1, j))*(src.at<float>(i,j));
-			}
-		}
-	}
-}
-
-void MyHough::init_mat(const Mat &src, Mat &dst){
-	dst = src.clone();
-	for(int i = 0; i < src.rows; ++i){
-	 	for(int j = 0; j < src.cols; ++j){
-			dst.at<float>(i, j) = 0;
-		}
-	}
-}
